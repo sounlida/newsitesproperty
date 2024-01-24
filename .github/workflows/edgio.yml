@@ -16,3 +16,40 @@ jobs:
       - run: if [ -f yarn.lock ]; then yarn edgio:deploy -- --token=$EDGIO_DEPLOY_TOKEN; else npm run edgio:deploy -- --token=$EDGIO_DEPLOY_TOKEN; fi
         env:
           EDGIO_DEPLOY_TOKEN: ${{secrets.EDGIO_DEPLOY_TOKEN}}
+      # Validate presence of deploy token
+      - name: Validate Deploy Token
+        if: env.deploy_token == ''
+        run: echo "EDGIO_DEPLOY_TOKEN missing" && exit 1
+
+      # Extract and sanitize branch name
+      - name: Extract Branch Name
+        shell: bash
+        run: echo "BRANCH_NAME=$(echo ${GITHUB_REF#refs/heads/} | sed 's/\//_/g')" >> $GITHUB_ENV
+
+      # Checkout code and set up Node.js
+      - uses: actions/checkout@v1
+      - uses: actions/setup-node@v1
+        with:
+          node-version: 16
+
+      # Cache node modules
+      - name: Cache Node Modules
+        uses: actions/cache@v1
+        with:
+          path: ~/.npm
+          key: ${{ runner.os }}-build-${{ env.cache-name }}-${{ hashFiles('**/package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-build-${{ env.cache-name }}-
+            ${{ runner.os }}-build-
+            ${{ runner.os }}-
+
+      # Install packages (Adjust based on package manager)
+      - name: Install Packages
+        run: npm ci
+
+      # Deploy
+      - name: Deploy to Edgio
+        run: npm run edgio:deploy -- --branch=$BRANCH_NAME --token=$deploy_token \
+          ${{ github.event_name == 'push' && '--environment=default' || '' }} \
+          ${{ github.event_name == 'pull_request' && '--environment=staging' || '' }} \
+          ${{ github.event_name == 'release' && '--environment=production' || '' }}
